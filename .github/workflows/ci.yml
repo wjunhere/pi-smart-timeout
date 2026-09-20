@@ -3,6 +3,9 @@ name: CI
 on:
   push:
     branches: ["**"]
+    # Tag pushes must be listed explicitly: `branches` alone does not match
+    # them, which would make the tag-gated e2e job below unreachable.
+    tags: ["v*"]
   pull_request:
   workflow_dispatch:
 
