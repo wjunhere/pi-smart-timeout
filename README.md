@@ -1,5 +1,9 @@
 # pi-smart-timeout
 
+[![CI](https://github.com/wjunhere/pi-smart-timeout/actions/workflows/ci.yml/badge.svg)](https://github.com/wjunhere/pi-smart-timeout/actions/workflows/ci.yml)
+[![npm](https://img.shields.io/npm/v/pi-smart-timeout.svg)](https://www.npmjs.com/package/pi-smart-timeout)
+[![license](https://img.shields.io/npm/l/pi-smart-timeout.svg)](LICENSE)
+
 Content-aware shell command timeouts for [Pi](https://pi.dev).
 
 Pi's `bash` tool has **no default timeout** — `timeout` is an optional parameter the
