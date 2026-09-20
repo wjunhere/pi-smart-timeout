@@ -7,18 +7,30 @@
  */
 import { strict as assert } from "node:assert";
 import { execFileSync } from "node:child_process";
-import { pathToFileURL } from "node:url";
+import { mkdirSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 // The extension reads these once at load time, so set them BEFORE importing.
 const CAP = 6;
+// Keep the decision log out of the repo so a `tail -f` scenario cannot read the
+// log this test is writing.
+const workDir = join(tmpdir(), `pi-smart-timeout-e2e-${process.pid}`);
+mkdirSync(workDir, { recursive: true });
 process.env.PI_BASH_TIMEOUT_SEC = String(CAP);
 process.env.PI_BASH_TIMEOUT_MODE = "short";
 process.env.PI_BASH_TIMEOUT_LONG_SEC = String(CAP);
-process.env.PI_BASH_TIMEOUT_LOG = "decisions.log";
+process.env.PI_BASH_TIMEOUT_LOG = join(workDir, "decisions.log");
 
-const PKG =
-	"D:/Nodejs/node_global/node_modules/@agegr/pi-web/node_modules/@earendil-works/pi-coding-agent/dist/index.js";
-const { createBashTool } = await import(pathToFileURL(PKG).href);
+// Resolve the SDK from this package's own node_modules rather than a hardcoded
+// absolute path, so the suite runs on any machine and in CI.
+const pkgEntry = fileURLToPath(
+	import.meta.resolve("@earendil-works/pi-coding-agent"),
+);
+const { createBashTool } = await import(pathToFileURL(pkgEntry).href);
+// Shell commands need a POSIX-style path; Git Bash on Windows understands /tmp.
+const shTmp = process.platform === "win32" ? "/tmp" : tmpdir();
 
 const handlers: Record<string, Function[]> = {};
 let commandHandler: Function | undefined;
@@ -105,7 +117,7 @@ const scenarios: Scenario[] = [
 	},
 	{
 		name: "streaming block (tail -f)",
-		command: (m) => `echo START_${m} > /tmp/bt-${m}.log; tail -f /tmp/bt-${m}.log`,
+		command: (m) => `echo START_${m} > ${shTmp}/bt-${m}.log; tail -f ${shTmp}/bt-${m}.log`,
 		expectTimeout: true,
 		maxSeconds: 15,
 	},
@@ -316,4 +328,6 @@ await setMode("short");
 
 console.log(rows.join("\n"));
 console.log(`\n${scenarios.length + 2 - failures}/${scenarios.length + 2} checks passed`);
+// Remove the temp workdir even when a check failed, so CI runs do not leak files.
+rmSync(workDir, { recursive: true, force: true });
 assert.equal(failures, 0, `${failures} check(s) failed`);
