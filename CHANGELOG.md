@@ -5,6 +5,17 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.1] - 2026-09-20
+
+### Fixed
+
+- Corrected the declared Node requirement to `>=22.19.0`. The package claimed
+  `>=20`, but the Pi SDK it loads uses `fs.globSync`, which does not exist before
+  Node 22, so installing on Node 20 produced a `SyntaxError` at import time
+  rather than a clear unsupported-runtime error. Found by the new CI workflow.
+
+[0.1.1]: https://github.com/wjunhere/pi-smart-timeout/compare/v0.1.0...v0.1.1
+
 ## [0.1.0] - 2026-09-20
 
 Initial release.

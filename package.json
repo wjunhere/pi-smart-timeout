@@ -1,6 +1,6 @@
 {
   "name": "pi-smart-timeout",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Content-aware shell command timeouts for Pi: caps every bash/powershell call so a hung command cannot stall the agent, while long-running builds keep the room they need.",
   "keywords": [
     "pi-package",
@@ -42,7 +42,7 @@
     "tsx": "^4.19.0"
   },
   "engines": {
-    "node": ">=20"
+    "node": ">=22.19.0"
   },
   "repository": {
     "type": "git",
