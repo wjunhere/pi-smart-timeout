@@ -18,7 +18,8 @@
   "files": [
     "extensions",
     "README.md",
-    "LICENSE"
+    "LICENSE",
+    "CHANGELOG.md"
   ],
   "pi": {
     "extensions": [
@@ -45,11 +46,11 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/REPLACE_ME/pi-smart-timeout.git"
+    "url": "git+https://github.com/wjunhere/pi-smart-timeout.git"
   },
-  "homepage": "https://github.com/REPLACE_ME/pi-smart-timeout#readme",
+  "homepage": "https://github.com/wjunhere/pi-smart-timeout#readme",
   "bugs": {
-    "url": "https://github.com/REPLACE_ME/pi-smart-timeout/issues"
+    "url": "https://github.com/wjunhere/pi-smart-timeout/issues"
   },
   "author": "wjun"
 }

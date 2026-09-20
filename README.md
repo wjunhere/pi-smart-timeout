@@ -41,6 +41,27 @@ Decision order — first match wins:
 
 Hangs are caught, and a 20-minute build is not.
 
+### How this differs from the other timeout extensions
+
+Three Pi timeout packages exist, and the difference is what they do with the command
+text. `@jamiefutch/pi-timeout` sorts commands into safe / run / unknown and **never
+caps `safe`** — but its safe set includes `tail -f` and `npm install`, which is exactly
+where hangs live:
+
+| Command | Safe/never-capped classifier | pi-smart-timeout |
+|---------|------------------------------|------------------|
+| `tail -f app.log` | `safe` → never capped | 1800s → killed |
+| `npm install` | `safe` → never capped | 1800s |
+| `git status` | `safe` → never capped | 120s |
+
+`@rukaachan/pi-timeout` guards a different failure mode: a model passing `60000` when
+it meant 60 *seconds*. It clamps that number but applies the same cap to every command.
+`pi-extend-timeout` changes the timeout of a command already running, which is a
+recovery tool rather than a preventive one.
+
+This package keeps two buckets so a low cap catches hangs without killing builds, and
+treats `tail -f`-style blocking commands as the long-running case they are.
+
 ### Case 3 in detail
 
 If the command already guards itself, the outer cap gets out of the way so the inner
