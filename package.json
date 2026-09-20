@@ -1,0 +1,55 @@
+{
+  "name": "pi-smart-timeout",
+  "version": "0.1.0",
+  "description": "Content-aware shell command timeouts for Pi: caps every bash/powershell call so a hung command cannot stall the agent, while long-running builds keep the room they need.",
+  "keywords": [
+    "pi-package",
+    "pi",
+    "pi-coding-agent",
+    "pi-extension",
+    "timeout",
+    "bash",
+    "shell",
+    "hang",
+    "guardrail"
+  ],
+  "license": "MIT",
+  "type": "module",
+  "files": [
+    "extensions",
+    "README.md",
+    "LICENSE"
+  ],
+  "pi": {
+    "extensions": [
+      "./extensions"
+    ]
+  },
+  "scripts": {
+    "test": "tsx tests/logic.test.mts && tsx tests/ui.test.mts && tsx tests/config.test.mts",
+    "test:logic": "tsx tests/logic.test.mts",
+    "test:ui": "tsx tests/ui.test.mts",
+    "test:e2e": "tsx tests/e2e.test.mts",
+    "test:all": "npm run test && npm run test:e2e"
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*"
+  },
+  "devDependencies": {
+    "@earendil-works/pi-coding-agent": "*",
+    "@types/node": "^22.0.0",
+    "tsx": "^4.19.0"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/REPLACE_ME/pi-smart-timeout.git"
+  },
+  "homepage": "https://github.com/REPLACE_ME/pi-smart-timeout#readme",
+  "bugs": {
+    "url": "https://github.com/REPLACE_ME/pi-smart-timeout/issues"
+  },
+  "author": "wjun"
+}
