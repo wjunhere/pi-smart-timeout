@@ -13,7 +13,8 @@
  * Decision order (first match wins):
  *  1. mode "off"                       -> no cap at all
  *  2. model supplied `timeout`         -> used as-is, but clamped to maxSeconds
- *  3. command contains `timeout N ...` -> N + graceSeconds (inner guard fires first)
+ *  3. command contains `timeout N ...` -> min(N + graceSeconds, maxSeconds) so the inner
+ *                                        guard fires first, but never past the ceiling
  *  4. command looks long-running       -> longSeconds
  *  5. everything else                  -> defaultSeconds
  *
@@ -90,24 +91,44 @@ const LONG_RUNNING: RegExp[] = [
 	/\b(?:pip|pip3|uv|conda|mamba|poetry|pipenv)\s+(?:install|sync|update|add|lock|create|run)\b/,
 	/\b(?:apt|apt-get|dpkg|brew|choco|winget|pacman|dnf|yum|apk|snap)\s+\S/,
 	/\bnpx\s+\S/,
-	// compilers / build systems
-	/\b(?:cargo|rustc|go|dotnet|mvn|mvnw|gradle|gradlew|make|cmake|ninja|meson|bazel|buck)\b/,
+	// compilers / build systems. `go` and `make` are also ordinary English words
+	// ("make sure", `*.go`, `grep go`) and file names, so they only count when
+	// they appear as the command word: start of command, after a separator, or
+	// after a common prefix like sudo/time.
+	/(?:^|[;&|(]\s*|\b(?:sudo|time|nohup|env)\s+)go\s+(?:build|test|run|vet|fmt|generate|mod|get|install|work|tool)\b/,
+	/(?:^|[;&|(]\s*|\b(?:sudo|time|nohup|env)\s+)make(?:\s|$)/,
+	/\b(?:cargo|rustc|dotnet|mvn|mvnw|gradle|gradlew|cmake|ninja|meson|bazel|buck)\b/,
 	/\btsc\s+(?:--build|-b)\b|\bwebpack\b|\bvite\s+build\b|\bnext\s+build\b|\brollup\b|\besbuild\b/,
 	// containers / infra / cloud CLIs
 	/\b(?:docker|podman|nerdctl)\s+(?:build|compose|pull|run|up|push|logs\s+-f)\b/,
 	/\b(?:vagrant|terraform|ansible-playbook|helm|kubectl|aws|gcloud|az)\s+\S/,
 	/\bsystemctl\s+\S/,
 	// VCS network ops / remote copy
+	// VCS network ops / remote copy. Bare `ssh` and `ssh-keygen` are deliberately
+	// absent: ssh hangs on password / host-key prompts and unreachable hosts --
+	// exactly the failure the low default cap exists to catch -- and ssh-keygen
+	// is instant. Pass an explicit timeout for long remote sessions.
 	/\bgit\s+(?:clone|fetch|pull|push|submodule|lfs)\b/,
-	/\b(?:ssh|scp|sftp|rsync|ssh-keygen)\b/,
+	/\b(?:scp|sftp|rsync)\b/,
 	// tests / benchmarks
 	/\b(?:pytest|py\.test|tox|nox|vitest|jest|mocha|playwright|cypress|rspec|phpunit|ctest)\b/,
-	// downloads / long scans / waits / media
-	/\b(?:curl|wget)\b[^|;&]*\s(?:-o|-O|--output)\b/,
+	// Bounded wait/poll loops (`for x in ...; do sleep N; done`) whose sleep
+	// terms are individually small but add up past the default cap. An
+	// unconditioned `while true` loop is NOT promoted: it is a hang by
+	// definition and the default cap should kill it quickly.
+	/\b(?:for|until|while)\b(?![^\n|;&]*\b(?:true|:)\b)[^\n]*\bdo\b[^\n]*\bsleep\s+\S/,
+	// downloads / long scans / waits / media. `curl`/`wget` are deliberately
+	// absent: they hang on unreachable hosts far more often than they transfer
+	// something big, so they stay in the fast default bucket (pass an explicit
+	// `timeout` for a large download).
 	/\b(?:watch|tail\s+-f|tail\s+-F|journalctl\s+-f|nvidia-smi\s+-l)\b/,
 	/\b(?:python|python3|node|deno|ruby|php)\s+-m\s+(?:http\.server|json\.tool|timeit)\b/,
 	/\bsleep\s+(?:[2-9]\d|\d{3,})\b/,
-	/\b(?:ffmpeg|magick|convert|7z|tar|zip)\b/,
+	// `convert` (ImageMagick's legacy name) is far more often an English word
+	// than a command; ImageMagick 7 uses `magick`, which is unambiguous. `tar`
+	// and `zip` must be the command word so `*.tar` / `*.zip` file names do not
+	// match.
+	/(?:^|[;&|(]\s*|\b(?:sudo|time|nohup|env)\s+)(?:ffmpeg|magick|7z|tar|zip)\b/,
 	/\b(?:jupyter|pytest|sphinx|mkdocs)\b/,
 ];
 
@@ -245,18 +266,65 @@ function log(line: string): void {
 }
 
 function looksLongRunning(command: string): boolean {
-	if (LONG_RUNNING.some((re) => re.test(command))) return true;
+	// Match the built-in heuristics against the command with quoted text
+	// blanked out, so `grep -n 'sleep 30' script.sh` or `echo "make sure"`
+	// cannot trip a pattern that is meant for the actual command words.
+	const bare = stripQuotedText(command);
+	if (LONG_RUNNING.some((re) => re.test(bare))) return true;
+	// User-supplied patterns are explicit; run them against the raw command.
 	return config.longPatterns.some((re) => re.test(command));
+}
+
+/**
+ * Replace the contents of single- and double-quoted spans (and the quotes
+ * themselves) with spaces, preserving offsets. Cheap and approximate, which
+ * is fine: it only feeds the long-running heuristics, never the inner-guard
+ * parser (which has its own quote handling).
+ */
+function stripQuotedText(command: string): string {
+	const out = command.split("");
+	let single = false;
+	let double = false;
+	for (let i = 0; i < out.length; i += 1) {
+		const ch = out[i];
+		if (ch === "\\" && (single || double)) {
+			out[i] = " ";
+			if (i + 1 < out.length) out[i + 1] = " ";
+			i += 1;
+			continue;
+		}
+		if (ch === "'" && !double) {
+			single = !single;
+			out[i] = " ";
+		} else if (ch === '"' && !single) {
+			double = !double;
+			out[i] = " ";
+		} else if (single || double) {
+			out[i] = " ";
+		}
+	}
+	return out.join("");
 }
 
 /**
  * True when `index` sits inside a single- or double-quoted span of the command.
  * Cheap heuristic that keeps `echo "timeout 5"` from being read as a guard.
+ * Quote state resets at command separators (`;`, `|`, `&`, backtick, newline)
+ * so a quote imbalance in one segment cannot mask a real guard in the next.
  */
+const QUOTE_RESET_RE = /[;&|`\n]/g;
 function isInsideQuotes(command: string, index: number): boolean {
+	// Only the segment containing `index` matters; find where it starts.
+	let segmentStart = 0;
+	QUOTE_RESET_RE.lastIndex = 0;
+	let sep: RegExpExecArray | null;
+	while ((sep = QUOTE_RESET_RE.exec(command)) !== null && sep.index < index) {
+		segmentStart = sep.index + 1;
+	}
+
 	let single = false;
 	let double = false;
-	for (let i = 0; i < index; i += 1) {
+	for (let i = segmentStart; i < index; i += 1) {
 		const ch = command[i];
 		if (ch === "\\") {
 			i += 1;
@@ -337,9 +405,14 @@ function planTimeout(command: string, requested: number | undefined): Plan {
 
 	const inner = parseInnerTimeout(command);
 	if (inner !== undefined) {
-		// An inner `timeout N` is itself an explicit bound, so the hard ceiling does not
-		// apply to it -- clamping here could make the outer cap race the inner guard.
-		return { timeout: Math.ceil(inner) + config.graceSeconds, reason: "inner-guard" };
+		// The inner `timeout N` should fire first, so it gets graceSeconds of
+		// headroom -- but the hard ceiling is absolute and applies here too. When
+		// N exceeds maxSeconds the inner guard could not fire before the ceiling
+		// anyway, so clamping never creates a race with the inner guard.
+		return {
+			timeout: clamp(Math.ceil(inner) + config.graceSeconds),
+			reason: "inner-guard",
+		};
 	}
 
 	if (config.mode !== "short" && looksLongRunning(command)) {
@@ -393,15 +466,16 @@ export default function (pi: ExtensionAPI) {
 		const modeLine =
 			config.mode === "short"
 				? `- Every bash/powershell command is capped at ${config.defaultSeconds}s.`
-				: `- Default cap: ${config.defaultSeconds}s; long-running builds/tests/installs get ${config.longSeconds}s.`;
+				: `- Default cap: ${config.defaultSeconds}s; commands known to run long (builds/tests/installs) get ${config.longSeconds}s.`;
 		const note = [
 			"",
 			"## Shell command timeouts",
 			modeLine,
 			"- When the cap is hit the whole process tree is killed and the tool reports",
 			"  `Command timed out after N seconds`.",
-			"- For anything expected to run longer, pass the `timeout` parameter in seconds",
-			`  (e.g. \`timeout: ${config.longSeconds}\`), or wrap the command as \`timeout N <cmd>\`.`,
+			"- Pass the `timeout` parameter (in seconds) whenever a command might take",
+			`  longer than the default cap -- e.g. \`timeout: ${config.longSeconds}\` -- or wrap the`,
+			"  command as \`timeout N <cmd>\`.",
 			"- A command killed by timeout must not be retried unchanged: either give it an explicit",
 			"  bigger timeout, or make it cheaper (narrow the path, add -maxdepth, exclude node_modules).",
 			"- Never run blocking/streaming commands (`tail -f`, `watch`, bare `python`, a REPL, an",

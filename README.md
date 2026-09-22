@@ -39,7 +39,7 @@ Decision order — first match wins:
 |---|-----------|-------------|
 | 1 | mode is `off` | nothing injected |
 | 2 | the model supplied `timeout` | used as-is, clamped to `maxSeconds` |
-| 3 | the command contains `timeout N ...` | `N + graceSeconds` |
+| 3 | the command contains `timeout N ...` | `min(N + graceSeconds, maxSeconds)` |
 | 4 | the command looks long-running | `longSeconds` (default 1800) |
 | 5 | anything else | `defaultSeconds` (default 120) |
 
@@ -57,6 +57,7 @@ where hangs live:
 | `tail -f app.log` | `safe` → never capped | 1800s → killed |
 | `npm install` | `safe` → never capped | 1800s |
 | `git status` | `safe` → never capped | 120s |
+| `grep -rn 'make sure' src/` | — | 120s (heuristics ignore quoted text and English words) |
 
 `@rukaachan/pi-timeout` guards a different failure mode: a model passing `60000` when
 it meant 60 *seconds*. It clamps that number but applies the same cap to every command.
@@ -75,18 +76,26 @@ guard fires first and you get a precise error instead of an ambiguous kill:
 timeout 2m cargo build     ->  150   (120 + 30 grace)
 timeout -s KILL 90 job     ->  120
 /usr/bin/timeout 45 job    ->   75
+timeout 1h backup.sh       -> 3600   (3630 clamped to maxSeconds)
 echo "timeout 5"           ->  120   (quoted, not a guard)
+sh -c 'echo "a"; timeout 7 x' -> 37   (quote state resets per segment)
 timeout 0 npm install      -> 1800   (coreutils: `timeout 0` means no limit)
+timeout 99999 cat          -> 3600   (huge inner guard clamped to maxSeconds)
 ```
 
 Option values are tokenized properly rather than matched with one regex, so `-s KILL`
-and `--kill-after=5s` are not misread as the duration.
+and `--kill-after=5s` are not misread as the duration. The inner guard is clamped to
+`maxSeconds` like every other path: when `N` exceeds the ceiling the inner guard could
+not fire before it anyway, so clamping never races the guard.
 
 ### It also tells the model
 
 The policy is appended to the system prompt each turn, so instead of being silently
-killed the model knows to pass `timeout` for long work, and knows not to re-run a
-timed-out command unchanged. This turns a hard kill into a recoverable error.
+killed the model knows to pass `timeout` whenever a command *might* outlast the default
+cap, and knows not to re-run a timed-out command unchanged. The long bucket is framed
+as what commands known to run long receive, not as a blanket allowance, so the model
+asks for more time explicitly rather than relying on a promoted default. This turns a
+hard kill into a recoverable error.
 
 ## Configuration
 
@@ -141,6 +150,13 @@ Invalid values are rejected with a warning and fall back to defaults; a malforme
   `timeout?: number` with no default; only injecting the field changes behavior.
 - **It won't kill deliberately detached work.** `nohup x &` leaves a process outside
   the killed tree. That is usually what you want.
+- **It doesn't hang-proof interactive network tools.** Bare `ssh` and `ssh-keygen` and
+  `curl`/`wget` stay in the *default* bucket: they hang on prompts and unreachable
+  hosts far more often than they legitimately run long, so a low cap catches the hang.
+  Pass an explicit `timeout` when you really do need a long session or a big download.
+- **It doesn't promote `while true` loops.** A `while true; do ...; done` loop is a
+  hang by definition and gets the default cap. Only *bounded* poll loops
+  (`until ping -c1 host; do sleep 10; done`) get the long bucket.
 - **It doesn't stop output flooding.** It caps duration, not volume. Pi truncates
   output on its own (2000 lines / 50KB, full output saved to a temp file).
 - **`timeout 0 cmd` is not treated as a guard**, because coreutils reads it as "no
@@ -156,7 +172,7 @@ npm run test:e2e  # slow: real kill path, spawns and kills processes (~2min)
 
 | Suite | What it covers |
 |-------|----------------|
-| `tests/logic.test.mts` | 55-case decision table: classification, inner-guard parsing, clamping, mode switching, system-prompt injection |
+| `tests/logic.test.mts` | ~75-case decision table: classification, inner-guard parsing, clamping, mode switching, system-prompt injection |
 | `tests/config.test.mts` | settings.json layering, project trust gating, validation, malformed input, `/bash-timeout reload` |
 | `tests/ui.test.mts` | notifications, `hasUI: false`, malformed tool input |
 | `tests/e2e.test.mts` | drives Pi's real `createBashTool`: verifies 15 blocking scenarios are actually killed, that no orphaned grandchildren survive, and that fast commands and 3s commands under a 6s cap are *not* killed |

@@ -13,6 +13,12 @@ import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 // The extension reads these once at load time, so set them BEFORE importing.
+import { mkdtempSync } from "node:fs";
+// Isolate from any real global settings.json: settings files outrank env vars,
+// so a developer's own smartTimeout config would override the env-pinned 6s
+// caps below and every scenario would wait 120s instead of 6s.
+const settingsSandbox = mkdtempSync(join(tmpdir(), "smart-timeout-e2e-cfg-"));
+process.env.PI_CODING_AGENT_DIR = settingsSandbox;
 const CAP = 6;
 // Keep the decision log out of the repo so a `tail -f` scenario cannot read the
 // log this test is writing.
@@ -330,4 +336,5 @@ console.log(rows.join("\n"));
 console.log(`\n${scenarios.length + 2 - failures}/${scenarios.length + 2} checks passed`);
 // Remove the temp workdir even when a check failed, so CI runs do not leak files.
 rmSync(workDir, { recursive: true, force: true });
+rmSync(settingsSandbox, { recursive: true, force: true });
 assert.equal(failures, 0, `${failures} check(s) failed`);

@@ -1,6 +1,6 @@
 {
   "name": "pi-smart-timeout",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Content-aware shell command timeouts for Pi: caps every bash/powershell call so a hung command cannot stall the agent, while long-running builds keep the room they need.",
   "keywords": [
     "pi-package",
@@ -27,7 +27,8 @@
     ]
   },
   "scripts": {
-    "test": "tsx tests/logic.test.mts && tsx tests/ui.test.mts && tsx tests/config.test.mts",
+    "typecheck": "tsc --noEmit",
+    "test": "npm run typecheck && tsx tests/logic.test.mts && tsx tests/ui.test.mts && tsx tests/config.test.mts",
     "test:logic": "tsx tests/logic.test.mts",
     "test:ui": "tsx tests/ui.test.mts",
     "test:e2e": "tsx tests/e2e.test.mts",
@@ -39,7 +40,8 @@
   "devDependencies": {
     "@earendil-works/pi-coding-agent": "*",
     "@types/node": "^22.0.0",
-    "tsx": "^4.19.0"
+    "tsx": "^4.19.0",
+    "typescript": "^5.9.3"
   },
   "engines": {
     "node": ">=22.19.0"

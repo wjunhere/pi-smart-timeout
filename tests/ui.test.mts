@@ -1,4 +1,13 @@
 // Verify the hasUI notification path (clamp + long-running) doesn't throw and fires correctly.
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
+// Isolate from any real global settings.json: settings files outrank env vars,
+// so a developer's own smartTimeout config would otherwise override the env
+// values this test pins below.
+const sandbox = mkdtempSync(join(tmpdir(), "smart-timeout-ui-"));
+process.env.PI_CODING_AGENT_DIR = sandbox;
 process.env.PI_BASH_TIMEOUT_SEC = "120";
 process.env.PI_BASH_TIMEOUT_LONG_SEC = "1800";
 process.env.PI_BASH_TIMEOUT_MAX_SEC = "600";
@@ -39,4 +48,5 @@ for (const bad of [undefined, {}, { command: 123 }, { command: "" }]) {
   await toolCall({ toolName: "bash", input: bad }, baseCtx);
 }
 console.log("malformed inputs tolerated");
+rmSync(sandbox, { recursive: true, force: true });
 console.log("UI PATHS PASS");

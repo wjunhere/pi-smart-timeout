@@ -47,14 +47,17 @@ jobs:
         run: npm test
 
   # The e2e suite drives Pi's real bash tool, kills real processes and inspects
-  # the process table to prove no grandchildren survive. It is portable now, but
-  # takes ~2 minutes, so it gates pull requests and releases rather than every
-  # push to main.
+  # the process table to prove no grandchildren survive. It takes ~2 minutes on
+  # a Windows runner, so pushes to feature branches skip it; pull requests,
+  # pushes to main and tag pushes always run it.
   e2e:
     name: e2e (windows)
     # WMI is used to read the process table, so this job is Windows-only.
     runs-on: windows-latest
-    if: github.event_name != 'push' || startsWith(github.ref, 'refs/tags/v')
+    if: >-
+      github.event_name != 'push' ||
+      github.ref == 'refs/heads/main' ||
+      startsWith(github.ref, 'refs/tags/v')
 
     steps:
       - uses: actions/checkout@v5

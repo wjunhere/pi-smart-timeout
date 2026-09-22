@@ -5,6 +5,53 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.2] - 2026-09-22
+
+### Changed
+
+- `LONG_RUNNING` heuristics no longer match bare English words. `go` and `make`
+  only count as the command word (after a separator or `sudo`/`time`/`nohup`/`env`),
+  so `grep -rn 'make sure' src/`, `ls | grep go`, `cd x && find . -name '*.go'`
+  and friends stay in the 120s default bucket instead of being promoted to 1800s.
+  The media/archival pattern was anchored the same way, and `convert`
+  (ImageMagick's legacy name, more often an English word) was removed.
+- Heuristics now match against the command with quoted text blanked out, so
+  `echo 'sleep 300'` and `grep -n 'sleep 30' script.sh` are no longer mistaken
+  for actual sleeps.
+- `ssh` and `ssh-keygen` were removed from the long-running set: ssh hangs on
+  password/host-key prompts and unreachable hosts — exactly the failure the
+  default cap exists to catch — and ssh-keygen is instant. `curl`/`wget` also
+  stay in the default bucket now (previously `-o`/`-O` promoted them): a
+  stalled download is caught sooner, and a large one can pass an explicit
+  `timeout`.
+- Bounded poll loops (`until ping -c1 host; do sleep 10; done`) now get the
+  long bucket even though each `sleep N` term is small. Unconditioned
+  `while true` loops keep the default cap — they are a hang by definition.
+- The inner `timeout N` guard is now clamped to `maxSeconds` like every other
+  path (`timeout 99999 cat` used to apply a ~27.7h cap, bypassing the ceiling).
+  The old comment claiming clamping would race the inner guard was wrong: when
+  `N` exceeds the ceiling the guard could not fire before it anyway.
+- Quote detection in the inner-guard parser resets at command separators
+  (`;`, `|`, `&`, backtick, newline) and rescans only the current segment, so
+  `sh -c 'echo "a"; timeout 7 sleep 9'` finds its guard again.
+- The system-prompt policy now asks the model to pass `timeout` whenever a
+  command *might* outlast the default cap, and frames the long bucket as what
+  commands known to run long receive — not as a blanket allowance.
+- CI: the Windows e2e job also runs on pushes to `main`, not only on PRs and
+  tag pushes.
+
+### Added
+
+- `npm run typecheck` (`tsc --noEmit` over the extension and tests, with a
+  `tsconfig.json`), run as part of `npm test`.
+
+### Fixed
+
+- `tests/ui.test.mts` is isolated from the developer's real global
+  `settings.json` via a temporary `PI_CODING_AGENT_DIR` (settings files
+  outrank env vars, so the test was failing on machines with their own
+  `smartTimeout` config).
+
 ## [0.1.1] - 2026-09-20
 
 ### Fixed
@@ -14,6 +61,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Node 22, so installing on Node 20 produced a `SyntaxError` at import time
   rather than a clear unsupported-runtime error. Found by the new CI workflow.
 
+[0.1.2]: https://github.com/wjunhere/pi-smart-timeout/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/wjunhere/pi-smart-timeout/compare/v0.1.0...v0.1.1
 
 ## [0.1.0] - 2026-09-20
